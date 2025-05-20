@@ -185,7 +185,7 @@ length(unique(data.orig$ID))
 if (ncol(data.orig) == length(new_headers)) {
   colnames(data.orig) <- new_headers
 } else {
-  stop("❌ Number of columns does not match expected structure.")
+  stop(" Number of columns does not match expected structure.")
 }
 
 # === 6. Keep only blocks 9 to 15
