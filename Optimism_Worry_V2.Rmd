@@ -1,0 +1,1983 @@
+---
+title: "Optimism_Worry"
+author: "Faz"
+date: "2024-10-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+---
+title: "PerfectArtDiff"
+author: "Jutta Stahl"
+date: "September  - 2024"
+output:
+  html_document:
+    toc: yes
+    code_folding: hide
+    toc_float: yes
+    toc_depth: 3
+    number_sections: yes
+    style: null
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+    warning: False
+---
+
+# Code preparation and data preparation
+
+
+## Library & path
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(afex)
+library(apa)
+library(emmeans)
+library(knitr)
+library(kableExtra)
+library(ggsci)
+library(cowplot)
+library(texreg)
+library(ggeffects)
+library(interactions)
+library(lsmeans)
+library(flextable)
+library(sjPlot)
+library(scales)
+library(Hmisc)
+library(corrplot)
+library(performance)
+library(see)
+library(PerformanceAnalytics)
+library(tseries)
+library(forcats)
+library(readxl)
+library(stringr)
+library(parameters)
+library(see)         
+library(sjPlot)
+library(interactions)
+setwd(dir = "/Users/faezehsadipour/Desktop")
+
+# Suppress summaries info
+options(dplyr.summarise.inform = FALSE)
+sessionInfo()
+
+```
+
+```{r, warning=FALSE, message=FALSE}
+
+getwd()
+
+# Functions to plot the 2 and 3 way interactions with continous predictors
+source("threeway_interactions.R")
+
+## Customized functions
+stderror <- function(x) sd(x)/sqrt(sum(!is.na(x)))
+
+## Function to print lme result summary
+tab_summary <- function(..., pred.labels, dv.labels, title = NULL) {
+  tab_model(..., pred.labels = pred.labels, dv.labels = dv.labels, title = title, p.val = "satterthwaite",
+            show.se = T, show.ci = 0.95, show.df =T, show.stat = T, show.obs = T, show.ngroups = T, 
+            string.se = "SE", string.est = "Estimate", string.stat = "t", col.order = c("est", "std.error", "beta", "df.error", "stat", "p"))
+  }
+
+```
+
+
+```{r}
+
+
+# 1. Define bad participants (OK)
+bad_participants <- c(4, 5, 13, 14, 25, 29, 48, 49, 75, 90, 96, 98)
+
+# 2. Load questionnaire data (OK)
+data.items <- read.csv2("/Users/faezehsadipour/Desktop/SE8ART/results_survey.csv")
+
+# 3. List behavior files
+path <- "/Users/faezehsadipour/Desktop/SE8ART/BEHAVIOUR"
+files <- list.files(path = path, pattern = "SE8_HT[0-9]+\\.beh$", full.names = TRUE)
+raw_lines <- readLines("/Users/faezehsadipour/Desktop/SE8ART/BEHAVIOUR/SE8_HT10.beh")
+grep("999999", raw_lines, value = TRUE)
+
+# 4. Extract participant numbers
+file_numbers <- as.numeric(sub("SE8_HT(\\d+)\\.beh$", "\\1", basename(files)))
+
+cols_to_convert <- setdiff(names(data.orig), "ID")
+data.orig[cols_to_convert] <- lapply(data.orig[cols_to_convert], function(x) as.numeric(x))
+
+
+# 6. Read and combine all files
+data.orig <- bind_rows(lapply(seq_along(files), function(i) {
+  data.orig <- data.orig %>%
+  mutate(across(-ID, ~ as.numeric(.)))
+
+  dplyr::last_dplyr_warnings()
+data.orig <- data.orig %>%
+  mutate(across(where(~ is.character(.) && !cur_column() %in% c("stimulus", "position")), 
+                ~ as.numeric(.)))
+sum(is.na(data.orig$RT))
+
+  # Read one file
+  file_data <- read.csv(files[i], header = FALSE, sep = "\t")
+  
+  # Clean spaces
+  file_data <- file_data %>% mutate_all(~ str_squish(.))
+  
+  # Add participant ID
+  file_data$ID <- file_numbers[i]
+  
+  return(file_data)
+}))
+
+# 7. View your final data
+print(data.orig)
+
+new_headers <- c(
+  "block", "trial", "position", "stimulus", "ITI", 
+  "force_1", "force_2", "force_3", "force_4", "force_5", "force_6", "force_7", "force_8",
+  "RT_1", "RT_2", "RT_3", "RT_4", "RT_5", "RT_6", "RT_7", "RT_8",
+  "TTP_1", "TTP_2", "TTP_3", "TTP_4", "TTP_5", "TTP_6", "TTP_7", "TTP_8",
+  "firstresponse", "accuracy", "dummy", "RT", "RF", "TTP",
+  "Det_force_1", "Det_force_2", "Det_force_3", "Det_force_4", "Det_force_5", "Det_force_6", "Det_force_7", "Det_force_8",
+  "Det_RT_1", "Det_RT_2", "Det_RT_3", "Det_RT_4", "Det_RT_5", "Det_RT_6", "Det_RT_7", "Det_RT_8",
+  "Det_TTP_1", "Det_TTP_2", "Det_TTP_3", "Det_TTP_4", "Det_TTP_5", "Det_TTP_6", "Det_TTP_7", "Det_TTP_8",
+  "det_accu", "Det_RT", "DET_RF", "DET_TTP",
+  "ID"
+)
+
+if (ncol(data.orig) == length(new_headers)) {
+  colnames(data.orig) <- new_headers
+}
+data.orig <- data.orig %>%
+  mutate(across(-ID, ~ as.numeric(.)))
+
+table(data.orig$ID)         
+length(unique(data.orig$ID))  
+
+if (ncol(data.orig) == length(new_headers)) {
+  colnames(data.orig) <- new_headers
+} else {
+  stop("❌ Number of columns does not match expected structure.")
+}
+
+# === 6. Keep only blocks 9 to 15
+data.orig <- data.orig %>%
+ filter(block > 8 & block <= 15)
+table(data.orig$ID)
+
+# Convert both ID columns to the same type
+data.orig <- data.orig %>%
+  mutate(ID = as.integer(ID))
+
+data.items <- data.items %>%
+  mutate(ID = as.integer(ID))
+
+
+data.orig$ID <- as.integer(data.orig$ID)
+data.items$ID <- as.integer(data.items$ID)
+
+#adding data items to data orig 
+
+data.orig <- left_join(data.orig, data.items, by = "ID")
+
+# Read and clean the data
+
+path_erpagg <- "/Users/faezehsadipour/Desktop/SE8ART/Peaks.csv"
+data.erpagg <- read.csv(path_erpagg, header = FALSE, sep = ";") %>%
+  mutate_all(~ str_squish(.))
+  new_headers <- c("ID", "Ne_Pcorrect_Selfeval", "Ne_Perror_Selfeval", 
+                 "Pe_Perror_Selfeval", "Pe_Pcorrect_Selfeval")
+
+if (ncol(data.erpagg) == length(new_headers)) {
+  colnames(data.erpagg) <- new_headers
+}
+data.orig$ID <- as.integer(data.orig$ID)
+data.erpagg$ID <- as.integer(data.erpagg$ID)
+# View the cleaned data
+head(data.erpagg)
+
+table(data.orig$accuStr)
+summary(data.orig$accuStr)
+
+#adding data erpagg to data orig 
+data.orig <- left_join(data.orig, data.erpagg, by = "ID")
+data.orig <- data.orig %>%
+  relocate(ID, .before = everything())
+
+```
+## Data housekeeping
+
+```{r}
+
+data.orig <- data.orig %>%
+  mutate(
+    accuStr = case_when(
+      accuracy == 1 ~ "correct",
+      accuracy == 2 ~ "error",
+      accuracy == 3 ~ "error_timeout",
+      accuracy == 4 ~ "timeout",
+      TRUE ~ NA_character_
+    )
+  )
+data.orig <- data.orig %>%
+  arrange(ID, trial) %>%  # ensure trial order
+  mutate(
+    Type_Nplus = lead(accuStr)  # next trial's accuracy string
+  )
+data.orig <- data.orig %>%
+  arrange(ID, block, trial) %>%
+  group_by(ID) %>%
+  mutate(
+    trial_index = row_number(),
+    Type_Nplus = lead(accuStr)  # assign next trial's accuracy
+  ) %>%
+  ungroup()
+
+data.orig <- data.orig %>% 
+  mutate(
+    # Binary flags for current trial
+    error_b = ifelse(accuStr == "error", 1, 0),
+    correct_b = ifelse(accuStr == "correct", 1, 0),
+    error_timeout_b = ifelse(accuStr == "error_timeout", 1, 0),
+    timeout_b = ifelse(accuStr == "timeout", 1, 0),
+    too_slow_b = ifelse(accuStr %in% c("error_timeout", "timeout"), 1, 0),
+    
+    # Binary flags for next trial (n+1)
+    error_nplus = ifelse(Type_Nplus == "error", 1, 0),
+    correct_nplus = ifelse(Type_Nplus == "correct", 1, 0),
+    error_timeout_nplus = ifelse(Type_Nplus == "error_timeout", 1, 0),
+    timeout_nplus = ifelse(Type_Nplus == "timeout", 1, 0),
+    too_slow_nplus = ifelse(Type_Nplus %in% c("error_timeout", "timeout"), 1, 0)
+  )
+  data.orig <- data.orig %>%
+  mutate(
+    # Evaluation string label
+    evalStr = case_when(
+      det_accu == 5 ~ "correct",   # participant *believed* they were correct
+      det_accu == 6 ~ "error",     # participant *believed* they were wrong
+      TRUE ~ NA_character_
+    ),
+    evalStr = factor(evalStr, levels = c("error", "correct")), 
+    # Evaluation numeric label (for modeling)
+    evalNum = case_when(
+      det_accu == 5 ~ 1,
+      det_accu == 6 ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
+
+# Clean data set: include only correct and error trials (exclude too slow & missing)
+data.main.practice <- data.orig %>%
+  filter(accuStr %in% c("correct", "error")) %>%
+  mutate(
+    accuStr = factor(accuStr, levels = c("error", "correct")),
+    evalStr = factor(evalStr)
+  ) %>%
+  ungroup()
+
+
+# Prepare for post-error analyses: exclude trials with no next RT
+data.main.postbeh <- data.main.practice %>%
+  arrange(ID, trial) %>%  # ensure trial order per subject
+  mutate(RT_trial_nplus = lead(RT)) %>%
+  filter(!RT_trial_nplus %in% c(999999)) %>%  # 999999 is numeric, not string
+  mutate(
+    accuStr = factor(accuStr),
+    evalStr = factor(evalStr)
+  ) %>%
+  ungroup()
+
+table(data.orig$accuracy)
+nrow(data.orig)
+table(data.orig$RT)
+sum(data.orig$RT == 999999)       # if RT is numeric
+sum(data.orig$RT == "999999")     # if RT is character
+sum(is.na(data.orig$RT))          # if RT is NA
+
+#Personality: only (centered, non centered)
+colnames(data.items)
+
+questionnaire_worry <- c("msf.wX1.","msf.wX2.", "msf.wX3.", "msf.wX4.", "msf.wX5.", "msf.wX6.", "msf.wX7.", "msf.wX8.", "msf.wX9.", "msf.wX10.", "msf.wX11.", "msf.wX12.")
+questionnaire_opt <- c("sop1.oX1.", "sop2.pX1.")
+data.pers.cen <- data.items %>% 
+  mutate(
+    worry = rowMeans(across(all_of(questionnaire_worry)), na.rm = TRUE),
+    opt = rowMeans(across(all_of(questionnaire_opt)), na.rm = TRUE),
+worry_cen = worry - mean(worry, na.rm = TRUE),
+ opt_cen = opt - mean(opt, na.rm = TRUE)
+  )
+
+#mean
+colnames(data.items)
+
+questionnaire_worry <- c("msf.wX1.","msf.wX2.", "msf.wX3.", "msf.wX4.", "msf.wX5.", "msf.wX6.", "msf.wX7.", "msf.wX8.", "msf.wX9.", "msf.wX10.", "msf.wX11.", "msf.wX12.")
+questionnaire_opt <- c("sop1.oX1.", "sop2.pX1.")
+data.pers.mean <- data.items %>% 
+  mutate(
+worry = rowMeans(across(all_of(questionnaire_worry)), na.rm = TRUE),
+opt = rowMeans(across(all_of(questionnaire_opt)), na.rm = TRUE))
+
+#Personality: only (non centered) 
+selected_items <- data.items %>%
+select(ID, age, gender, )
+selected_cen <- data.pers.mean %>%
+select(worry, opt) 
+data.pers.all <- cbind(selected_items, selected_cen)
+#SDT-parameter
+data.orig <- data.orig %>%
+  mutate(
+    EU = ifelse(accuracy == 2 & det_accu == 5, "Error Undetected", NA),
+    CU = ifelse(accuracy == 1 & det_accu == 6, "Correct Undetected", NA),
+    ED = ifelse(accuracy == 2 & det_accu == 6, "Error Detected", NA),
+    CD = ifelse(accuracy == 1 & det_accu == 5, "Correct Detected", NA)
+  )
+
+data.orig <- data.orig %>%
+  mutate(
+    signal = factor(case_when(
+      !is.na(ED) ~ "ED",
+      !is.na(EU) ~ "EU",
+      !is.na(CU) ~ "CU",
+      !is.na(CD) ~ "CD",
+      TRUE ~ NA_character_
+    )),
+    hit = ifelse(!is.na(ED), 1, 0),
+    fa = ifelse(!is.na(CU), 1, 0),
+    miss = ifelse(!is.na(EU), 1, 0),
+    cr = ifelse(!is.na(CD), 1, 0)
+  ) %>%
+  filter(!is.na(signal))
+
+#prepare matrix for ERP analyses
+worry_cen <-rep(data.pers.cen$worry_cen,2) 
+opt_cen <-rep(data.pers.cen$opt_cen,2) 
+worry <-rep(data.pers.all$worry,2) 
+opt <-rep(data.pers.mean$opt,2) 
+ID <- (rep(data.erpagg$ID, 2))
+
+acc <- factor(c(rep(1,1 * 91), rep(2,1 * 91)), labels = c("correct", "error")) # slow factor
+#eval <- factor(c(rep(1, 137), rep(2, 10), rep(1, 10), rep(2, 10)), labels = c("no evaluation", "self-evaluation")) # fast factor
+length(acc)  
+#contrasts(eval) <- contr.sum(2) *(-0.5)
+contrasts(acc) <- contr.sum(2) *(-0.5)
+
+Ne <- c(data.erpagg$Ne_Pcorrect_Selfeval, data.erpagg$Ne_Perror_Selfeval)
+
+Pe <- c(data.erpagg$Pe_Pcorrect_Selfeval,	data.erpagg$Pe_Perror_Selfeval)
+
+matrix.mean.erp <- data.frame(ID, acc, worry_cen, opt_cen, worry, opt, Ne, Pe)
+
+matrix.mean.erp <- matrix.mean.erp %>%
+  mutate(
+    Ne = as.numeric(Ne),
+    Pe = as.numeric(Pe)
+  )
+stderror <- function(x) {
+  sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))
+}
+
+matrix.mean.Ne3 <- matrix.mean.erp %>%
+  group_by(ID, acc) %>%
+  summarise(
+    m.Ne = mean(Ne, na.rm = TRUE),
+    se.Ne = stderror(Ne),
+    worry_cen = first(worry_cen),
+    opt_cen = first(opt_cen)
+  ) %>%
+  ungroup()
+
+# 5. Check structure
+str(matrix.mean.erp)
+sum(data.main$RT == 999999.00, na.rm = TRUE)
+
+# clean
+rm(ID, opt , worry, opt_cen, worry_cen, acc, Ne, Pe)
+```
+
+## Johnson-Neyman interval ???????
+(prepare data frame for predicted values)
+
+```{r}
+
+sum(data.orig$RT == 999999.00, na.rm = TRUE)
+
+# Convert `accuStr` to a factor with proper levels
+data.main$accuStr <- factor(data.main$accuStr, levels = unique(data.main$accuStr))
+
+# Check if levels are now correctly assigned
+levels(data.main$accuStr)
+
+
+limits <- max(c(abs(min(data.pers.cen$worry_cen)), abs(min(data.pers.cen$opt_cen)), max(data.pers.cen$worry_cen), max(data.pers.cen$opt_cen)))
+b <- seq(-0.5-limits, 0.5+limits, 0.1)
+
+data.pred1 <- data.frame(ID = rep(unique(data.main$ID), each = 2*length(b)*length(b)),
+                        accuStr = rep(levels(data.main$accuStr), each = length(b)*length(b)),
+                        evalStr = "eval0",
+                        worry_cen = rep(b, each = length(b)),
+                        opt_cen = rep(b, length(b)))
+
+data.pred2 <- data.frame(ID = rep(unique(data.main$ID), each = 2*length(b)*length(b)),
+                        accuStr = rep(levels(data.main$accuStr), each = length(b)*length(b)),
+                        evalStr = "eval1",
+                        worry_cen = rep(b, each = length(b)),
+                        opt_cen = rep(b, length(b)))
+
+data.pred <- rbind(data.pred1, data.pred2) %>%
+  mutate(
+    accuNum = ifelse(accuStr == "correct", -0.5, 0.5),
+    accuStr = factor(accuStr), 
+    evalStr = factor(evalStr)
+  )
+
+rm(data.pred1, data.pred2)
+
+jnp1 <- list()
+```
+
+## Contrast coding
+
+```{r}
+
+# Step 1: Convert to factor
+data.main$accuStr <- factor(data.main$accuStr)
+
+
+contrasts(data.main$accuStr) <- contr.sum(2) *(-0.5)
+contrasts(data.main$evalStr) <- contr.sum(2) *(-0.5)
+
+contrasts(data.main.postbeh$accuStr) <- contr.sum(2) *(-0.5)
+contrasts(data.main.postbeh$evalStr) <- contr.sum(2) *(-0.5)
+```
+
+## Predictors
+
+```{r}
+# full model
+predictors.all <- c("(Intercept)", 
+  "Response Type", 
+  "Evaluation Type",
+  "Optimism", 
+  "Worry", 
+  "Response Type x Evaluation Type", 
+  "Response Type x Optimism", 
+  "Evaluation Type x Optimism",  
+  "Response Type x Worry", 
+  "Evaluation Type x Worry", 
+  "Worry x Optimism", 
+  "Response Type x Evaluation Type x Optimism", 
+  "Response Type x Evaluation Type x Worry", 
+  "Response Type x Worry x Optimism", 
+  "Evaluation Type x Worry x Optimism", 
+  "Response Type x Evaluation Type x Worry x Optimism")
+
+# Model with accuracy only
+predictors.acc <- c(
+  "(Intercept)", 
+  "Response Type", 
+  "Optimism", 
+  "Worry", 
+  "Response Type x Optimism", 
+  "Response Type x Worry", 
+  "Worry x Optimism", 
+  "Response Type x Worry x Optimism"
+)
+
+# model with evaluation type
+predictors.eval <- c("(Intercept)", 
+  "Evaluation Type", 
+  "Optimism", 
+  "Worry", 
+  "Evaluation Type x Optimism", 
+  "Evaluation Type x Worry", 
+  "Worry x Optimism", 
+  "Evaluation Type x Optimism x Worry"
+)
+
+# model only with personality variables
+predictors.opt <- c("(Intercept)", 
+  "Optimism", 
+  "Worry", 
+  "Worry x Optimism"
+)
+```
+
+# Demographics 
+
+## Age
+
+```{r, eval=TRUE}
+cat(
+  "Age:\n",
+  "Mean =", round(mean(data.pers.all$age, na.rm = TRUE), 2), 
+  "+/-", round(sd(data.pers.all$age, na.rm = TRUE), 2), "\n",
+  "Min =", round(min(data.pers.all$age, na.rm = TRUE), 2), "\n",
+  "Max =", round(max(data.pers.all$age, na.rm = TRUE), 2)
+)
+
+```
+
+## Gender
+
+```{r, eval=TRUE}
+paste("female:", sum(data.pers.all$gender == 1), "male:", sum(data.pers.all$gender == 2),"diverse:",sum(data.pers.all$gender == 0))
+```
+
+## Handedness?? I guess I don't need it. 
+
+```{r, eval=TRUE}
+# Coefficient Oldfield
+paste("right:", sum(data.erpagg$Latquo > 40), 
+      "left:", sum(data.erpagg$Latquo < -40), 
+    "ambidexter:", sum(data.erpagg$Latquo >= -40 & data.erpagg$Latquo <= 40))
+
+```
+
+
+
+## Scales and reliability
+
+```{r}
+
+data.quest <- data.items %>% 
+  mutate(
+    worry = rowMeans(as.matrix(select(., msf.wX3., msf.wX4., msf.wX5., msf.wX6., 
+                                      msf.wX7., msf.wX8., msf.wX9., msf.wX10., 
+                                      msf.wX11., msf.wX12.)), na.rm = TRUE),
+
+    opt = rowMeans(as.matrix(select(., sop1.oX1., sop2.pX1.)), na.rm = TRUE)
+  ) %>% 
+  ungroup()
+
+# Optimism 
+data.quest <- data.items %>% 
+mutate(worry = mean(c(msf.wX3., msf.wX4., msf.wX5., msf.wX6., msf.wX7., msf.wX8., msf.wX9., msf.wX10., msf.wX11., msf.wX12. ), na.rm = T))%>%
+mutate(opt = mean(c(sop1.oX1., sop2.pX1. ), na.rm = T)) %>% 
+ungroup()
+
+# Cronbachs alpha (conflicting - psych and scales, ggplot2) 
+psych::alpha(subset(data.quest, select = c(msf.wX3., msf.wX4., msf.wX5., msf.wX6., msf.wX7., msf.wX8., msf.wX9., msf.wX10., msf.wX11., msf.wX12. )))
+psych::alpha(subset(data.quest, select = c(sop1.oX1., sop2.pX1. )))
+
+
+```
+
+## Personality scores (mean and range)
+
+```{r}
+paste("worry", round(mean(data.pers.all$worry),2), "+/-", round(sd(data.pers.all$worry), 2), "min:",round(min(data.pers.all$worry),2), "max:" , round(max(data.pers.all$worry),2))
+
+paste("opt", round(mean(data.pers.all$opt),2), "+/-", round(sd(data.pers.all$opt), 2),"min:",round(min(data.pers.all$opt),2), "max:" , round(max(data.pers.all$opt),2))
+ 
+ 
+```
+### Stationarity******
+
+```{r}
+names<- as.character(c(1:42,44:77, 79:109, 111:117, 141:163))
+ies <-(c(1:42,44:77, 79:109, 111:117, 141:163))
+# Required Libraries
+
+
+# Define names and IDs
+names <- as.character(c(1:42,44:77, 79:109, 111:117, 141:163))
+ies <- c(1:42,44:77, 79:109, 111:117, 141:163)
+
+# Initialize list to store ADF test results
+adf_results <- list()
+
+for (i in 1:137) {
+  # Filter data for each participant ID
+  data.dummy <- data.orig %>%
+    filter(!practise %in% c("practise")) %>%
+    filter(!Trial_RT %in% c("999999")) %>%
+    filter(ID %in% c(ies[i])) %>%
+    mutate(accuStr = factor(accuStr)) %>%
+    mutate(evalStr = factor(evalStr)) %>%
+    ungroup()
+  
+  # Run ADF test and store the result
+  adf_results[[i]] <- adf.test(data.dummy$Trial_RT)
+  
+  # Generate and print the plot
+  p <- ggplot(data.dummy, aes(x = triallong, y = Trial_RT, colour = accuStr)) +
+    scale_color_manual(values = c("green", "red", "blue", "gray")) +
+    facet_wrap(vars(ID), ncol = 5, nrow = 6) +
+    geom_smooth(method = stats::lm, colour = "black") +  # specifying stats::lm
+    geom_point() +
+    labs(x = "Trial", y = "RT", colour = "Accuracy") +
+    theme_classic()
+  
+  print(p)  # Print each plot
+  
+  # Optional: Save each plot to a file
+  ggsave(filename = paste0("plot_ID_", ies[i], ".png"), plot = p)
+}
+
+# `adf_results` will contain ADF test results for each ID
+
+
+```
+
+# Results Behaviour Trial n 
+
+## Error rates {.tabset .tabset-pills}
+
+### Descriptives
+
+```{r}
+# matrix: ID, Eval, error rates, opt, worry
+data.orig$ID <- as.character(data.orig$ID)
+data.pers.cen$ID <- as.character(data.pers.cen$ID)
+data.orig <- data.orig %>%
+  mutate(ID = as.integer(as.character(ID)))
+data.pers.cen <- data.pers.cen %>%
+  mutate(ID = as.integer(as.character(ID)))
+data.orig <- data.orig %>%
+  left_join(data.pers.cen %>% select(ID, opt, opt_cen, worry, worry_cen), by = "ID")
+names(data.orig)
+
+# First: timeout summary
+timeout_summary <- data.orig %>%
+  group_by(ID) %>%
+  summarise(
+    total_trials = n(),
+    timeout_abs = sum(RT == 999999.00, na.rm = TRUE),
+    timeout_perc = round(100 * timeout_abs / total_trials, 2)
+  )
+
+sum(data.orig$RT == 999999.00, na.rm = TRUE) #to check for myself 
+
+
+matrix.mean.errorrate <- data.orig %>%
+  group_by(ID) %>%
+  summarise(
+    error_abs = sum(accuStr == "error", na.rm = TRUE),
+    correct_abs = sum(accuStr == "correct", na.rm = TRUE),
+    total_trials = n(),
+    error_perc = round(100 * error_abs / total_trials, 2),
+    correct_perc = round(100 * correct_abs / total_trials, 2),
+     too_slow_abs = sum(too_slow_b),
+          too_slow_perc = mean(too_slow_b)*100,
+          worry_cen = mean(worry_cen),
+          opt_cen = mean(opt_cen)) %>%
+ungroup()
+ 
+
+
+
+
+#average.errorrate.EV <- matrix.mean.errorrate %>%
+#group_by(evalStr) %>%
+#summarise(m.error_abs = mean(error_abs),
+      
+
+# average: Eval, error rates
+##average.errorrate.EV <- matrix.mean.errorrate %>%
+#group_by(evalStr) %>%
+#summarise(m.error_abs = mean(error_abs),
+          #se.error_abs = stderror(error_abs),
+          #m.error_perc = mean(error_perc),
+          #se.error_perc = stderror(error_perc),
+          #m.correct_abs = mean(correct_abs),
+          #se.correct_abs = stderror(correct_abs),
+          #m.correct_perc = mean(correct_perc),
+          #se.correct_perc = stderror(correct_perc),
+          #m.too_slow_abs = mean(too_slow_abs),
+          #se.too_slow_abs = stderror(too_slow_abs),
+          #m.too_slow_perc = mean(too_slow_perc),
+          #se.too_slow_perc = stderror(too_slow_perc),
+          #ps_cen = mean(ps_cen),
+          #cm_cen = mean(cm_cen)
+           # ) %>%
+#ungroup()
+
+# average: overall, error rates
+se <- function(x) {
+  sd(x, na.rm = TRUE) / sqrt(length(na.omit(x)))
+}
+
+average.errorrate.oa <- matrix.mean.errorrate %>%
+group_by() %>%
+summarise(m.error_abs = mean(error_abs),
+          se.error_abs = stderror(error_abs),
+          m.error_perc = mean(error_perc),
+          se.error_perc = stderror(error_perc),
+          m.correct_abs = mean(correct_abs),
+          se.correct_abs = stderror(correct_abs),
+          m.correct_perc = mean(correct_perc),
+          se.correct_perc = stderror(correct_perc),
+          m.too_slow_abs = mean(too_slow_abs),
+          se.too_slow_abs = stderror(too_slow_abs),
+          m.too_slow_perc = mean(too_slow_perc),
+          se.too_slow_perc = stderror(too_slow_perc)
+            ) %>%
+ungroup()
+
+
+paste("Error N:",round(average.errorrate.oa$m.error_abs,2), "+/-", round(average.errorrate.oa$se.error_abs,2), "Error rate: ", round(average.errorrate.oa$m.error_perc,2), "+/-", round(average.errorrate.oa$se.error_perc,2), "%")
+colnames(average.errorrate.oa)
+summary(average.errorrate.oa)
+
+
+```
+
+#### Error percentage
+
+```{r}
+
+Error.lm <- lm(error_perc ~ opt_cen * worry_cen, data = matrix.mean.errorrate)
+tab_model(Error.lm, dv.labels = "Error Rates [%]")
+
+```
+
+#### Collinearity Error Percentage
+
+```{r}
+
+check_collinearity(Error.lm)
+# plot results
+dum <- check_collinearity(Error.lm)
+library(ggplot2)
+
+ggplot(dum, aes(x = Term, y = VIF)) +
+  geom_col() +
+  geom_hline(yintercept = 5, linetype = "dashed", color = "red") +  # Warning line at VIF = 5
+  theme_minimal() +
+  labs(title = "Variance Inflation Factors (VIF)",
+       y = "VIF Value",
+       x = "Predictors")
+
+```
+
+#### LME - Timeouts.  
+####I dont have timeouts, I thought about it a lot, but I can’t find where is the problem? 
+```{r}
+# mixed model: Eval x PSP x ECP 
+timeouts.lm <- lm(too_slow_perc ~ worry_cen * opt_cen, data = matrix.mean.errorrate)
+
+summary(timeouts.lm)
+summary(matrix.mean.errorrate$too_slow_perc)
+
+
+ 
+```
+
+#### Collinearity Timeouts
+
+```{r}
+check_collinearity(timeouts.lm)
+if (require("see")) {
+  ggplot(dum, aes(x = Term, y = VIF)) +
+    geom_col() +
+    geom_hline(yintercept = 5, linetype = "dashed", color = "red") +  # Warning line at VIF = 5
+    theme_minimal() +
+    labs(
+      title = "Variance Inflation Factors (VIF)",
+      y = "VIF Value",
+      x = "Predictors"
+    )
+}
+
+```
+
+### Figures (Appendix)
+
+```{r}
+# Fig.mean distributions   
+  matrix.mean.errorrate$group <- "All"
+
+ggplot(matrix.mean.errorrate, aes(x=group, y=error_perc)) +
+  geom_violin(fill="#3df50a", color="#f20a19") +
+  geom_boxplot(width=0.2) +
+  geom_jitter(width=0.1) +
+  labs(x = "Participants", y = "Error Rate [%]") +
+  theme_classic()
+
+```
+
+### Statistical analyses 
+
+## Signal detection theory parameter {.tabset .tabset-pills}
+
+### Descriptives
+
+```{r}
+# matrix: ID, opt , worry, 
+
+data.orig <- data.orig %>%
+  mutate(ID = as.integer(as.character(ID)))
+
+data.pers.cen <- data.pers.cen %>%
+  mutate(ID = as.integer(as.character(ID)))
+
+data.orig <- data.orig %>%
+  left_join(data.pers.cen %>% select(ID, opt, opt_cen, worry, worry_cen), by = "ID")
+
+data.orig <- data.orig %>%
+  mutate(
+    opt_cen = opt.x - mean(opt.x, na.rm = TRUE),
+    worry_cen = worry.x - mean(worry.x, na.rm = TRUE)
+  )
+matrix.mean.SDT<- data.orig %>%
+  group_by(ID) %>%
+    summarise(hit = mean(hit),
+            fa = mean(fa),
+            miss = mean(miss),
+            cr = mean(cr),
+            opt_cen = mean(opt_cen),
+            worry_cen = mean(worry_cen)) %>%
+    ungroup()
+
+# matrix: SDT bias, d'
+matrix.mean.SDT <- matrix.mean.SDT %>%  
+mutate(dprime = qnorm(hit) - qnorm(fa),
+       bias = (-0.5)*(qnorm(hit) + qnorm(fa)),
+       dprime = replace(dprime, is.infinite(dprime), NA),
+       bias = replace(bias, is.infinite(bias), NA))
+       
+# average: overall
+average.SDT <- matrix.mean.SDT   %>%
+ filter(!bias %in% c(NA))%>% 
+   group_by() %>%
+   summarise(m.bias = mean(bias),
+             se.bias = stderror(bias),
+             m.dprime  = mean(dprime),
+             se.dprime = stderror(dprime),
+                ) %>%
+  ungroup()
+
+paste(("sensitivity d': "), round(average.SDT$m.dprime,2), "+/-", round(average.SDT$se.dprime,2))
+paste(("bias c:"), round(average.SDT$m.bias,2), "+/-", round(average.SDT$se.bias,2))
+
+```
+## Certainty {.tabset .tabset-pills}
+
+### Descriptives
+
+```{r}
+# rating data
+
+data.main.postbeh <- data.orig %>%
+  left_join(data.pers.cen %>% select(ID, opt, opt_cen, worry, worry_cen), by = "ID")
+
+  matrix.mean.certain <-data.main.postbeh %>% 
+  group_by(ID, accuStr, evalStr) %>% 
+  summarise(det_accu =  mean(det_accu),
+            opt = mean(opt),
+            worry = mean(worry)) %>%
+  ungroup() 
+
+# grand average : accuracy - RT
+  average.certain <-  matrix.mean.certain %>%
+  group_by(accuStr) %>%
+  reframe(m.rating = mean(det_accu),
+            se.rating = stderror(det_accu)) %>%
+  ungroup()
+  
+paste("Rating: ",  average.certain$accuStr, round(average.certain$m.rating,2), "+/-", round(average.certain$se.rating,2))
+
+```
+
+
+### Statistical analyses
+
+#### LME - SDT (bias')
+
+```{r}
+# linear model: bias, opt x worry 
+
+bias.lm <- lm(bias ~ opt_cen * worry_cen, data = matrix.mean.SDT)
+
+# 3. Define predictor labels (if needed)
+predictors <- c("(Intercept)", "opt_cen", "worry_cen", "opt_cen:worry_cen")
+
+ggplot(dum, aes(x = Term, y = VIF)) +
+    geom_col() +
+    geom_hline(yintercept = 5, linetype = "dashed", color = "red") +  # Warning line at VIF = 5
+    theme_minimal() +
+    labs(
+      title = "Variance Inflation Factors (VIF)",
+      y = "VIF Value",
+      x = "Predictors"
+    )
+
+```
+#### Collinearity bias
+
+```{r}
+# no effect in LM
+
+check_collinearity(bias.lm)
+if (require("see")) {
+  ggplot(dum, aes(x = Term, y = VIF)) +
+    geom_col() +
+    geom_hline(yintercept = 5, linetype = "dashed", color = "red") +  # Warning line at VIF = 5
+    theme_minimal() +
+    labs(
+      title = "Variance Inflation Factors (VIF)",
+      y = "VIF Value",
+      x = "Predictors"
+    )
+}
+
+
+
+```
+
+#### LME - SDT (d')
+
+```{r}
+# linear model: d', PSP x ECP (only for Eval applicable) ?????
+dprime.lm  <- lm(dprime ~ opt_cen * worry_cen, matrix.mean.SDT) 
+
+tab_model(dprime.lm, dv.labels = "dprime [%]")
+
+```
+#### Collinearity d prime
+
+```{r}
+# no effect in LM
+
+check_collinearity(dprime.lm)
+# plot results
+if (require("see")) {
+  dum <- check_collinearity(dprime.lm )
+  plot(dum)
+}
+
+
+```
+
+### Statistical analyses
+
+#### LME - Certainty???
+
+```{r}
+matrix.mean.certain <- data.main.postbeh %>%
+  group_by(ID, accuStr) %>%
+  summarise(
+    det_accu = mean(det_accu, na.rm = TRUE),
+    opt_cen.x = first(opt_cen.x),
+    worry_cen.x = first(worry_cen.x)
+  ) %>%
+  ungroup()
+
+Rating0.lme  <- lmer(det_accu ~ accuStr * opt_cen.x * worry_cen.x  + (1| ID), matrix.mean.certain)
+
+tab_model(Rating0.lme, dv.labels = "Certainty [1..4] 1 = certain, 4 = uncertain")
+
+
+
+```
+
+
+#### Collinearity Certainty????
+
+```{r}
+check_collinearity(Rating0.lme)
+# plot results
+if (require("see")) {
+  dum <- check_collinearity(Rating0.lme)
+  plot(dum)
+}
+
+```
+
+
+###Figures (Appendix)
+
+```{r}
+# Fig.mean distributions   
+  ggplot(matrix.mean.SDT, aes(x = 0, y=dprime)) +
+  geom_violin(position=position_dodge(1)) +
+  geom_point(position=position_dodge(1))+
+  labs(x = "", y = "Sensitivity (d')") +
+  geom_boxplot(position=position_dodge(1),width = 0.2)+
+  theme_classic()
+
+# Fig.mean distributions   
+  ggplot(matrix.mean.SDT, aes(x = 0, y=bias)) +
+  geom_violin(position=position_dodge(1)) +
+  geom_point(position=position_dodge(1))+
+  labs(x = "", y = "Bias (c)") +
+  geom_boxplot(position=position_dodge(1),width = 0.2)+
+  theme_classic()
+
+```
+
+
+## Response Time {.tabset .tabset-pills}
+
+### Descriptives
+
+(Decision against median e.g. <https://psyarxiv.com/3q5np/> )
+
+```{r, eval=TRUE}
+
+
+
+# matrix: ID, Eval, SDT, PSP, ECP 
+data.main <- data.main %>%
+  mutate(RT = as.numeric(RT)) 
+
+# Join the centered personality data into the trial-level data
+data.main <- data.main %>%
+  left_join(data.pers.cen %>% select(ID, opt_cen, worry_cen), by = "ID")
+
+# Summarise the data by ID and accuStr
+matrix.mean.RT <- data.main %>%
+  group_by(ID, accuStr, evalStr) %>%
+  summarise(
+    mRT = mean(RT, na.rm = TRUE),  # Calculate the mean of RT
+    seRT = stderror(RT),           # Standard error of RT
+    opt_cen = mean(opt_cen, na.rm = TRUE),
+    worry_cen = mean(worry_cen, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+
+average.RT.ID <- data.main %>%
+  group_by(ID) %>%
+  summarise(m.RT = mean(RT),
+            se.RT = stderror(RT)) %>%
+  ungroup()  
+# grand average: experiment x accuracy - RT  
+average.RT.AccEV <- matrix.mean.RT %>%
+  group_by(accuStr, evalStr) %>%
+  summarise(m.RT = mean(mRT),
+            se.RT.ae = sd(mRT)) %>%
+  ungroup()
+    
+# grand average : accuracy - RT
+average.RT.Acc <- matrix.mean.RT  %>%
+  group_by(accuStr) %>%
+  summarise(m.RT = mean(mRT),
+            se.RT = stderror(mRT)) %>%
+  ungroup()
+  
+# grand average : evaluation - RT  
+average.RT.EV <- matrix.mean.RT %>%
+  group_by(evalStr) %>%
+  summarise(m.RT = mean(mRT),
+            se.RT = stderror(mRT)) %>%
+  ungroup()
+  
+average.RT.oa <- matrix.mean.RT  %>%
+  group_by() %>%
+  summarise(m.RT = mean(mRT),
+            se.RT = stderror(mRT)) %>%
+  ungroup()
+    
+#blockwise    
+#matrix.RT.block.correct <- data.main.practice%>%
+  #filter(accuStr%in% c("correct"))%>%
+  #group_by(ID,blockNEW) %>%
+  #summarise(m.RT = mean(Trial_RT),
+            #se.RT = stderror(Trial_RT))%>%
+  #mutate(blockNEW = factor(blockNEW)) %>% 
+  #ungroup()    
+
+paste("mean RT overall:", round(average.RT.oa$m.RT,2), "+/-",
+round(average.RT.oa$se.RT,2), "ms")
+```
+
+### Statistical analyses
+
+#### LME - RT #the table was not loaded.note for Faz  
+
+```{r}
+# Accuracy x Evaluation x PSP x ECP
+RT1.lme <- lmer(RT ~ accuStr * evalStr * opt_cen * worry_cen + (accuStr | ID), data.main)
+
+# binary - required for JN-procedure
+ RT1.lmeb  <- lmer(RT  ~ accuStr * evalStr* opt_cen * worry_cen + (accuStr | ID), data.main)
+names(predictors.all) <- colnames(RT1.lme@vcov_beta)[1:length(predictors.all)]
+
+# Table of all effects
+names(predictors.all) <- colnames(RT1.lme@vcov_beta)
+
+library(broom.mixed)
+tidy(RT1.lme, effects = "fixed")
+tab_model(RT1.lme, 
+          pred.labels = predictors.all, 
+          dv.labels = "Response Time Effects")
+
+tab_summary(RT1.lme, pred.labels = predictors.all, dv.labels = "Response Time Effects")
+names(predictors.all) <- names(fixef(RT1.lme))
+
+
+predictor.labels <- c(
+  "(Intercept)" = "Baseline RT",
+  "accuStr1" = "Accuracy: Error",
+  "evalStrcorrect" = "Evaluation: Correct",
+  "opt_cen" = "Optimism (centered)",
+  "worry_cen" = "Worry (centered)",
+  "accuStr1:evalStrcorrect" = "Error × Eval",
+  "accuStr1:opt_cen" = "Error × Optimism",
+  "evalStrcorrect:opt_cen" = "Eval × Optimism",
+  "accuStr1:worry_cen" = "Error × Worry",
+  "evalStrcorrect:worry_cen" = "Eval × Worry",
+  "opt_cen:worry_cen" = "Optimism × Worry",
+  "accuStr1:evalStrcorrect:opt_cen" = "Error × Eval × Opt",
+  "accuStr1:evalStrcorrect:worry_cen" = "Error × Eval × Worry",
+  "accuStr1:opt_cen:worry_cen" = "Error × Opt × Worry",
+  "evalStrcorrect:opt_cen:worry_cen" = "Eval × Opt × Worry",
+  "accuStr1:evalStrcorrect:opt_cen:worry_cen" = "4-Way Interaction"
+)
+
+tab_model(RT1.lme, 
+          pred.labels = predictor.labels,
+          dv.labels = "Response Time Effects")
+
+
+
+
+```
+
+#### Collinearity- RT
+
+```{r}
+
+check_collinearity(RT1.lme )
+# plot results
+if (require("see")) {
+  x <- check_collinearity(RT1.lme)
+  plot(x)
+}
+```
+#### Post hoc - Acc x Eval type*****
+
+```{r}
+
+### Post hoc pairwise comparisons (within interaction)
+emmeans(RT1.lme, specs = c("accuStr", "evalStr")) %>% pairs()
+emmeans(RT1.lme, specs = c("accuStr", "evalStr"), lmerTest.limit = 50000) %>% pairs()
+
+#### Post hoc simple slope – Johnson-Neyman: opt_cen × Evaluation Type
+
+# Set factor levels (just to be sure)
+data.main.postbeh$evalStr <- factor(data.main.postbeh$evalStr, levels = c("error", "correct"))
+
+# Refit the simplified model (based on actual RT)
+RT1.simple <- lmer(RT ~ evalStr * opt_cen + (1 | ID), data = data.main.postbeh)
+
+# Generate predicted RT (only if needed)
+data.pred <- data.main.postbeh %>%
+  mutate(RTP = predict(RT1.simple, newdata = data.main.postbeh, allow.new.levels = TRUE))
+
+# Johnson-Neyman interval (numeric output)
+RT1.jn <- interactions::johnson_neyman(
+  model = RT1.simple,
+  pred = "evalStrcorrect",
+  modx = "opt_cen",
+  plot = TRUE
+)
+
+# Print model summary and JN interval
+summary(RT1.simple)
+print(RT1.jn)
+
+### 📊 Plot observed RT across optimism and evaluation
+plot_data <- data.main.postbeh %>%
+  group_by(evalStr, opt_cen) %>%
+  summarise(mean_RT = mean(RT, na.rm = TRUE), .groups = "drop")
+
+ggplot(plot_data, aes(x = opt_cen, y = mean_RT, colour = evalStr, linetype = evalStr)) +
+  geom_line(linewidth = 1.2) +
+  theme_minimal() +
+  labs(
+    title = "Observed RT across Optimism and Evaluation",
+    x = "Optimism (centered)",
+    y = "Observed RT (ms)",
+    colour = "Evaluation",
+    linetype = "Evaluation"
+  )
+
+# 📊 Johnson-Neyman style shaded plot (based on actual RT)
+yrange <- range(data.main.postbeh$RT, na.rm = TRUE)
+
+jnp1$RT.opt <- data.main.postbeh %>%
+  group_by(evalStr, opt_cen, ID, accuStr) %>%
+  summarise(RT = mean(RT), .groups = "drop") %>%
+  group_by(evalStr, opt_cen) %>%
+  summarise(RT = mean(RT), .groups = "drop") %>%
+  ggplot(aes(x = opt_cen, y = RT, colour = evalStr, linetype = evalStr)) +
+
+  # Add shaded non-significant region
+  geom_rect(
+    alpha = 0.2, fill = "lightgray", inherit.aes = FALSE,
+    ymin = -Inf, ymax = Inf,
+    xmin = min(data.main.postbeh$opt_cen),
+    xmax = min(RT1.jn$bounds["Lower"])
+  ) +
+
+  # Add participant-level jittered dots
+  geom_point(
+    data = data.main.postbeh %>% select(ID, opt_cen) %>% distinct(),
+    mapping = aes(x = opt_cen, y = yrange[1] + 0.01 * (yrange[2] - yrange[1])),
+    inherit.aes = FALSE, alpha = 0.2,
+    position = position_jitter(height = 0.01 * (yrange[2] - yrange[1]))
+  ) +
+
+  geom_line(linewidth = 1.1) +
+  labs(
+    x = "Optimism (centered)",
+    y = "Observed Response Time [ms]",
+    colour = "Evaluation Type",
+    linetype = "Evaluation Type"
+  ) +
+  scale_color_grey(start = 0, end = 0.2) +
+  scale_linetype_manual(values = c("solid", "longdash")) +
+  theme_classic()
+
+# Display final plot
+jnp1$RT.opt
+
+### Optional: Run the numeric version with evalNum
+plot_data <- data.pred %>%
+  group_by(evalNum, opt_cen) %>%
+  summarise(mean_RT = mean(RT, na.rm = TRUE), .groups = "drop")
+
+# Plot
+ggplot(plot_data, aes(x = opt_cen, y = mean_RT, colour = as.factor(evalNum), linetype = as.factor(evalNum))) +
+  geom_line(linewidth = 1.2) +
+  theme_minimal() +
+  labs(
+    title = "Observed RT across Optimism and Evaluation (evalNum as numeric)",
+    x = "Optimism (centered)",
+    y = "Observed RT (ms)",
+    colour = "Evaluation (0 = Error, 1 = Correct)",
+    linetype = "Evaluation (0 = Error, 1 = Correct)"
+  )
+data.pred$evalNumF <- factor(data.pred$evalNum, levels = c(0, 1), labels = c("Error", "Correct"))
+
+```
+# Results Behaviour on Trial N+1 
+
+## Post Response RT {.tabset .tabset-pills}
+
+### Descriptives
+
+```{r}
+# indiv. mean PES
+data.main.postbeh <- data.main.postbeh %>%
+  left_join(data.pers.cen %>% select(ID, opt_cen, worry_cen), by = "ID")
+
+  matrix.mean.PES <- data.main.postbeh %>%
+  group_by(ID,accuStr, evalStr) %>%
+  summarise(opt = mean(RT_trial_nplus), 
+            opt_cen = first(opt_cen),
+            worry_cen = first(worry_cen)) %>%
+  ungroup()  
+
+# first part (non evaluation)
+  matrix.mean.PES.0 <-   data.main.postbeh %>%
+  filter(!RT_trial_nplus %in% c("999999")) %>% 
+  filter(!evalStr %in% "eval1") %>% 
+  group_by(ID,accuStr, evalStr) %>%
+  summarise(m.PES = mean(RT_trial_nplus),
+            se.PES = stderror(RT_trial_nplus),
+            opt_cen = first(opt_cen),
+            worry_cen = first(worry_cen)) %>%
+  ungroup()  
+
+# errors only 
+  matrix.mean.PES.E <-   data.main.postbeh %>%
+  filter(!RT_trial_nplus %in% c("999999")) %>% 
+  filter(!accuStr %in% "correct") %>% 
+  group_by(ID,accuStr, evalStr) %>%
+  summarise(m.PES = mean(RT_trial_nplus),
+            se.PES = stderror(RT_trial_nplus),
+            opt_cen = first(opt_cen),
+            worry_cen = first(worry_cen)) %>%
+  ungroup()  
+  
+# correct only  
+  matrix.mean.PES.C <-   data.main.postbeh %>%
+  filter(!RT_trial_nplus %in% c("999999")) %>% 
+  filter(!accuStr %in% "error") %>% 
+  group_by(ID,accuStr, evalStr) %>%
+  summarise(m.PES = mean(RT_trial_nplus),
+            se.PES = stderror(RT_trial_nplus),
+            opt_cen = first(opt_cen),
+            worry_cen = first(worry_cen)) %>%
+  ungroup()  
+
+# second part (self evaluation)
+  matrix.mean.PES.1 <-   data.main.postbeh %>%
+  filter(!RT_trial_nplus %in% c("999999")) %>% 
+  filter(!evalStr %in% "eval0") %>% 
+  group_by(ID,accuStr, evalStr) %>%
+  summarise(m.PES = mean(RT_trial_nplus),
+            se.PES = stderror(RT_trial_nplus),
+            opt_cen = first(opt_cen),
+            worry_cen = first(worry_cen)) %>%
+  ungroup()  
+  
+# Delta * -1 wegen reihenfolge der Faktoren
+  matrix.delta.PES <- matrix.mean.PES %>%
+   group_by(ID,evalStr) %>%
+  summarise(m.D.RT = -1*diff(opt),
+            opt_cen = first(opt_cen),
+            worry_cen = first(worry_cen)) %>%
+  ungroup()    
+  
+# average: accuracy
+  average.PES.Acc <- matrix.mean.PES %>%
+  group_by(accuStr) %>%
+  summarise(m.PES = mean(opt),
+            se.PES = stderror(opt)) %>%
+  ungroup()  
+  
+ matrix.mean.PES <- data.main.postbeh %>%
+  group_by(ID, accuStr, evalStr) %>%
+  summarise(
+    opt = mean(RT_trial_nplus),
+    opt_cen = first(opt_cen),
+    worry_cen = first(worry_cen)
+  ) %>%
+  ungroup()
+ 
+  
+                                    
+average.delta.PES <- matrix.mean.PES %>%
+  group_by(ID, evalStr) %>%
+  reframe(
+    meanDIFFRT = -1 * diff(opt),  # Flip because of factor order
+    opt_cen = first(opt_cen),
+    worry_cen = first(worry_cen)
+  )
+library(dplyr)
+
+# Step 1: Compute mean RT on trial n+1 grouped by ID and previous accuracy
+matrix.mean.RTnplus <- data.main.postbeh %>%
+  group_by(ID, accuStr) %>%
+  summarise(
+    m.RTnplus = mean(RT_trial_nplus, na.rm = TRUE),
+    opt_cen = first(opt_cen),
+    worry_cen = first(worry_cen)
+  ) %>%
+  ungroup()
+
+# Step 2: Ensure factor order is "error" then "correct" for correct subtraction
+matrix.mean.RTnplus$accuStr <- factor(matrix.mean.RTnplus$accuStr, levels = c("error", "correct"))
+
+# Step 3: Compute PES = RT after error - RT after correct
+PES_data <- matrix.mean.RTnplus %>%
+  group_by(ID) %>%
+  summarise(
+    PES = -1 * diff(m.RTnplus),  # Flip sign to get: error - correct
+    opt_cen = first(opt_cen),
+    worry_cen = first(worry_cen)
+  ) %>%
+  ungroup()
+
+# Step 4: View the resulting PES data
+head(PES_data)
+
+# average overall  
+  average.PES.EV <-  average.delta.PES %>%
+  group_by(evalStr) %>%
+  summarise(meanRT = mean(meanDIFFRT),
+            seRT = sd(meanDIFFRT)/sqrt(n())) %>%
+  ungroup()
+
+ paste("Post error slowing:", average.PES.Acc$accuStr,  round(average.PES.Acc$m.PES,0), "+/-", round(average.PES.Acc$se.PES,2), "ms")
+
+```
+
+#### LME - PES, the famous 4way interaction?
+
+```{r}
+
+colnames(PES_data)
+library(lme4)
+
+ES4.lme <- lmer(PES ~ opt_cen * worry_cen + (1 | ID), data = PES_data)
+summary(ES4.lme)
+model_pes <- lm(PES ~  accuStr * evalStr * opt_cen * worry_cen, data = PES_data)
+summary(model_pes)
+colnames(matrix.mean.PES)
+
+# 4 way and separately 3-ways for post hoc analyses of the 4 way interaction
+PES4.lme  <- lmer(PES ~ accuStr * evalStr * opt_cen * worry_cen   + (1 | ID),matrix.mean.PES)
+tab_summary(PES4.lme , pred.labels = predictors.all,  dv.labels = "PES - 4-way [ms]")
+PES4.lme <- lmer(PES ~ opt_cen * worry_cen + (1 | ID), data = PES_data)
+
+# Post hoc 
+PES3.0.lme  <- lmer(m.PES ~ accuStr * ps_cen * cm_cen   + (1 | ID),matrix.mean.PES.0)
+tab_summary(PES3.0.lme , pred.labels =  predictors.acc,  dv.labels = "PES - eval 0 [ms]")
+PES3.1.lme  <- lmer(m.PES ~ accuStr * ps_cen * cm_cen   + (1 | ID),matrix.mean.PES.1)
+tab_summary(PES3.1.lme , pred.labels =  predictors.acc,  dv.labels = "PES - eval 1 [ms]")
+
+```
+
+
+
+
+#### Collinearity - PES
+
+```{r}
+check_collinearity(PES4.lme)
+
+# plot results
+if (require("see")) {
+  x <- check_collinearity(PES4.lme)
+  plot(x)
+}
+ 
+```
+
+#### Post hoc Acc x Eval type
+
+```{r}
+# within interaction post hoc comparison
+  emmeans(PES4.lme, specs = c("accuStr", "evalStr")) %>% 
+  pairs()
+```
+
+
+### Figures (Appendix)
+
+```{r}
+
+# Fig. RT interaction -- mean distributions  
+  col5 <- c( "#f20a19", "#3df50a") # chanced order because of faktor order
+  ggplot(matrix.mean.PES, aes(x=evalStr, y=PES,  color = accuStr)) +
+  geom_violin(position=position_dodge(1)) +
+  scale_color_manual(values=col5)+ 
+  geom_point(position=position_dodge(1))+
+  labs(x = "Evaluation Type", y = "RT (trial n+1)   [ms]", color = "Accuracy") +
+  geom_boxplot(position=position_dodge(1),width = 0.1)+
+  theme_classic()
+  
+# Fig. Delta mean distributions   
+  ggplot(matrix.mean.PES, aes(x=evalStr, y=PES)) +
+  geom_violin(position=position_dodge(1)) +
+  scale_color_manual(values=col5)+ 
+  geom_point(position=position_dodge(1))+
+  labs(x = "Evaluation Type", y = "RT (trial n+1) [ms]") +
+  geom_boxplot(position=position_dodge(1),width = 0.2)+
+  theme_classic()
+  
+# Fig Resp. effect 
+  ggplot(matrix.mean.PES, aes(x=accuStr, y=PES)) +
+  geom_violin(position=position_dodge(1)) +
+  scale_color_manual(values=col5)+ 
+  geom_point(position=position_dodge(1))+
+  labs(x = "Evaluation Type", y = "RT (trial n+1)   [ms]") +
+  geom_boxplot(position=position_dodge(1),width = 0.2)+
+  theme_classic()
+```
+
+## Post Response accuracy {.tabset .tabset-pills}, triple check*
+
+### Descriptives
+
+```{r}
+
+# prepare table: compare with  DAs scheint riechti!!
+matrix.mean.PEA <- data.main.postbeh  %>%
+  group_by(ID, accuStr, evalStr) %>%
+  summarise(correct = mean(correct_nplus)*100,
+            opt_cen = mean(opt_cen),
+            worry_cen = mean(worry_cen)
+            ) %>%
+  ungroup()
+
+# Difference 
+matrix.delta.PEA <- matrix.mean.PEA %>%
+   group_by(ID,evalStr) %>%
+   summarise(correct = diff(correct),
+            opt_cen = first(opt_cen),
+            worry_cen = first(worry_cen)) %>%
+  ungroup()  
+
+data.main.postbeh <- data.main.postbeh %>%
+  mutate(
+    accuNum = case_when(
+      accuStr == "error" ~ 0,
+      accuStr == "correct" ~ 1,
+      TRUE ~ NA_real_
+    ),
+    evalNum = case_when(
+      evalStr == "error" ~ 0,
+      evalStr == "correct" ~ 1,
+      TRUE ~ NA_real_
+    )
+  )
+
+# johnson-N.
+matrix.mean.PEA.b  <- data.main.postbeh %>%
+  group_by(ID, accuNum, evalNum) %>%
+  summarise(correct = mean(correct_nplus)*100,
+            opt_cen = mean(opt_cen),
+            worry_cen = mean(worry_cen)) %>%
+  ungroup()
+
+
+# grand average : Accuracy x Evaluation Type  
+average.PEA.AccEV <- matrix.mean.PEA  %>%
+group_by(accuStr, evalStr) %>%
+summarise(m.correct = mean(correct),
+             se.correct = stderror(correct)) %>%
+      ungroup()
+
+# grand average : Evaluation Type
+average.PEA.EV <- matrix.mean.PEA %>%
+  group_by(evalStr) %>%
+  summarise(m.correct = mean(correct),
+             se.correct = stderror(correct)) %>%
+      ungroup()
+
+# grand average : Accuracy Type
+average.PEA.Acc<- matrix.mean.PEA  %>%
+  group_by(accuStr) %>%
+ summarise(m.correct = mean(correct),
+             se.correct = stderror(correct)) %>%
+      ungroup()
+
+# grand average : overall
+average.PEA.oa <- matrix.mean.PEA  %>%
+  group_by() %>%
+ summarise(m.correct = mean(correct),
+             se.correct = stderror(correct)) %>%
+  ungroup()
+
+paste("Post response accuracy:", average.PEA.Acc$accuStr, round(average.PEA.Acc$m.correct,2), "+/-", round(average.PEA.Acc$se.correct,2), "ms")
+
+```
+
+### Statistical analyses
+
+#### LME - PEA
+
+```{r}
+PEA.c.lme  <- lmer(correct ~  accuStr * evalStr * opt_cen * worry_cen + (1| ID), matrix.mean.PEA) 
+tab_summary(PEA.c.lme, pred.labels = predictors.all,  dv.labels = "Post response accuracy  [% correct ]")
+
+
+# binary - required for JN-procedure
+PEA.c.lmeb <- lmer(correct ~ accuNum * evalNum * opt_cen * worry_cen + (1  | ID), matrix.mean.PEA.b)
+
+# Vorzeichen???
+
+```
+
+#### Collinearity - PEA
+
+```{r}
+check_collinearity(PEA.c.lme)
+
+# plot results
+if (require("see")) {
+  x <- check_collinearity(PEA.c.lme)
+  plot(x)
+}
+ 
+```
+
+#### Post hoc simple slope - OPT x Accu
+
+```{r}
+
+# Compute Johnson-Neyman interval2
+PEA.c.jn <- johnson_neyman(model = PEA.c.lmeb, pred ="accuNum", modx ="opt_cen",  plot = F)
+data.pred$PEA_correct <- predict(PEA.c.lmeb, data.pred)
+
+# Create an interim plot to get the limits of the y-axis (dots in figure)
+  interim.plot <- data.pred %>%
+  group_by(accuStr, ps_cen, evalStr, ID) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  ungroup() %>%
+  ggplot(aes(x = ps_cen, y = PEA_correct, colour = accuStr, linetype = accuStr)) +
+  geom_line()
+  yrange <- layer_scales(interim.plot)$y$range$range
+  
+# Print Johnson-Neyman interval
+  print(PEA.c.jn) 
+  
+# Create full plot
+  jnp1$PEA.c.ps <- data.pred %>%
+  group_by(accuStr, ps_cen, ID, evalStr) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  ungroup() %>% 
+
+  ggplot(aes(x = ps_cen, y = PEA_correct, colour = accuStr, linetype = accuStr)) +
+  geom_rect(alpha = .2, fill = "lightgray", inherit.aes = F, ymin = -Inf, ymax = Inf, 
+            xmin = min(data.pred$ps_cen), xmax=min(PEA.c.jn$bounds["Lower"]))+
+  geom_point(data = data.pers.cen, mapping = aes(x = ps_cen, y =   yrange[1]+0.01*(yrange[2]-yrange[1])), inherit.aes = F, alpha = .2, 
+             position = position_jitter(height = 0.01*(yrange[2]-yrange[1]))) +
+  geom_line() +
+  labs(x = "Personal Standard Perfectionism (centered)", y = "Post respose accuracy [%correct]", colour = "Response Type",linetype = "Response Type" ) +
+  scale_color_grey(start = 0, end = 0.2) +
+  scale_linetype_manual(values = c("solid", "longdash")) +
+  theme_classic()
+  
+jnp1$PEA.c.ps
+
+```
+
+#### Post hoc simple slope ECP x Accu
+
+```{r}
+
+# Compute Johnson-Neyman interval
+PEA_correctcm.jn <- johnson_neyman(model = PEA.c.lmeb, pred ="accuNum", modx ="cm_cen",  plot = F)
+#data.pred$PEA_correct <- predict(PEA_correct.lmeb, data.pred)
+
+# Create an interim plot to get the limits of the y-axis (dots in figure)
+  interim.plot <- data.pred %>%
+  group_by(accuStr, ps_cen, evalStr, ID) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  ungroup() %>%
+  ggplot(aes(x = ps_cen, y = PEA_correct, colour = accuStr, linetype = accuStr)) +
+  geom_line()
+  yrange <- layer_scales(interim.plot)$y$range$range
+  
+# Print Johnson-Neyman interval
+  print(PEA_correctcm.jn)
+  
+# Create full plot
+  jnp1$PEA_correct.cm <- data.pred %>%
+  group_by(accuStr, cm_cen, ID, evalStr) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  summarise(PEA_correct = mean(PEA_correct)) %>%
+  ungroup() %>% 
+
+  ggplot(aes(x = cm_cen, y = PEA_correct, colour = accuStr, linetype = accuStr)) +
+  geom_rect(alpha = .2, fill = "lightgray", inherit.aes = F, ymin = -Inf, ymax = Inf, 
+            xmin = min(PEA_correctcm.jn$bounds["Higher"]), xmax = max(data.pred$cm_cen), )+
+  geom_point(data = data.pers.cen, mapping = aes(x = cm_cen, y =   yrange[1]+0.01*(yrange[2]-yrange[1])), inherit.aes = F, alpha = .2, 
+             position = position_jitter(height = 0.01*(yrange[2]-yrange[1]))) +
+  geom_line() +
+  labs(x = "Evaluative Concern Perfectionism (centered)", y = "Post response accuracy [%correct]", colour = "Response Type", linetype = "Response Type") +
+  scale_color_grey(start = 0, end = 0.2) +
+  scale_linetype_manual(values = c("solid", "longdash")) +
+  theme_classic()
+
+  
+jnp1$PEA_correct.cm
+
+
+```
+
+### Figures (Appendix)
+
+```{r}
+
+# Fig. RT interaction -- mean distributions  
+  col4 <- c("#3df50a", "#f20a19") # green red
+  ggplot(matrix.mean.RT, aes(x=evalStr, y=mRT,  color = accuStr)) +
+  geom_violin(position=position_dodge(1)) +
+  scale_color_manual(values=col4)+
+  geom_point(position=position_dodge(1))+
+  labs(x = "Evaluation Type", y = "Response Time [ms]", color = "Response Type") +
+  geom_boxplot(position=position_dodge(1),width = 0.1)+
+  theme_classic()
+
+
+  ggplot(matrix.mean.RT, aes(x=evalStr, y=mRT,  color = accuStr)) +
+  geom_violin(position=position_dodge(1)) +
+  scale_color_manual(values=col4)+
+  geom_point(position=position_dodge(1))+
+  labs(x = "Evaluation Type", y = "Response Time [ms]", color = "Response Type") +
+  geom_boxplot(position=position_dodge(1),width = 0.1)+
+  theme_classic()
+
+# blockwise
+  ggplot(matrix.RT.block.correct, aes(x=blockNEW, y=m.RT)) +
+  geom_violin(position=position_dodge(1)) +
+  geom_point(position=position_dodge(1))+
+  labs(x = "Block", y = "Response Time [ms]") +
+  geom_boxplot(position=position_dodge(1),width = 0.1)+
+  theme_classic()
+  
+# mainly the two practice blocks differ in RT from the other blocks  
+
+ pairwise.t.test(matrix.RT.block.correct$m.RT, matrix.RT.block.correct$blockNEW, p.adjust="bonferroni") 
+```
+
+### Statistical analyses
+
+
+
+```{r}
+
+RT ~ evalStr * opt_cen * worry_cen + (1 | ID)
+data.main.postbeh$evalStr <- factor(data.main.postbeh$evalStr, levels = c("error", "correct"))
+contrasts(data.main.postbeh$evalStr) <- contr.sum(2) / 2
+
+
+OPTmean0 <- list(OPTM0 = sim_slope_plot_3x(OPT3.0.lme, steps = 0.02,  thresholding = TRUE)) 
+OPTmean1 <- list(OPTM1 = sim_slope_plot_3x(OPT3.1.lme, steps = 0.02,  thresholding = TRUE)) 
+
+PESmean0$PESM0<- PESmean0$PESM0  +
+  scale_fill_gradient2(limits = c(-150,150), low = muted("blue"), mid = "white", high = muted("red"),  name = "Accuracy effect (error - correct)  ") +
+  theme(legend.position = "bottom") + labs(x = "Personal Standards Perferctionism (centered)", y = "Evaluative Concerns Perfectionism (centered)")
+
+cowplot::plot_grid(PESmean0$PESM0)
+
+PESmean1$PESM1 <- PESmean1$PESM1  + 
+  scale_fill_gradient2(limits = c(-150,150), low = muted("blue"), mid = "white", high = muted("red"),  name = "Accuracy Effect") +
+  theme(legend.position = "bottom") + labs(x = "Personal Standards Perferctionism (centered)", y = "Evaluative Concerns Perfectionism (centered)")
+
+cowplot::plot_grid(PESmean1$PESM1)
+
+# Step 1: Set contrast coding for dichotomous variable
+data.main.postbeh$evalStr <- factor(data.main.postbeh$evalStr, levels = c("error", "correct"))
+contrasts(data.main.postbeh$evalStr) <- contr.sum(2) / 2  # sets -0.5 and +0.5 coding
+
+# Step 2: Fit the model
+RT_model1 <- lmer(
+  RT ~ evalStr * opt_cen * worry_cen + (1 | ID),
+  data = data.main.postbeh
+)
+
+# Step 3: Generate the slope plot
+RT_plot1 <- sim_slope_plot_3x(
+  model = RT_model1,
+  steps = 0.02,
+  thresholding = TRUE
+)
+
+# Step 4: Customize and plot
+RT_plot1 <- RT_plot1 +
+  scale_fill_gradient2(
+    limits = c(-150, 150),
+    low = muted("blue"),
+    mid = "white",
+    high = muted("red"),
+    name = "Accuracy Effect (error - correct)"
+  ) +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Evaluation × Optimism × Worry",
+    x = "Optimism (centered)",
+    y = "Worry (centered)"
+  )
+
+cowplot::plot_grid(RT_plot1)
+
+summary(data.main.postbeh$opt_cen)
+summary(data.main.postbeh$worry_cen)
+contrasts(data.main.postbeh$evalStr) <- contr.sum(2) / 2
+RT_model1 <- lmer(RT ~ evalStr * opt_cen * worry_cen + (1 | ID), data = data.main.postbeh)
+RT_plot1 <- sim_slope_plot_3x(
+  model = RT_model1,
+  steps = 0.02,
+  thresholding = TRUE
+)
+
+print(RT_plot1)
+
+
+```
+
+# Results Elecrotrophysiology
+
+## Error negativity (Ne /c) {.tabset .tabset-pills}
+
+### Descriptives
+
+```{r}
+
+# grand average : eval x accuracy - Ne  
+average.Ne4.AccEV <- matrix.mean.erp %>%
+  group_by(acc, eval) %>%
+  summarise(m.Ne = mean(Ne),
+            se.Ne = stderror(Ne)) %>%
+  ungroup()
+  
+# grand average :  accuracy - Ne  
+average.Ne4.Acc <- matrix.mean.erp %>%
+  group_by(acc) %>%
+  summarise(m.Ne = mean(Ne),
+            se.Ne = stderror(Ne)) %>%
+  ungroup()
+  
+# grand average :  eval - Ne  
+average.Ne4.Ev <- matrix.mean.erp %>%
+  group_by(eval) %>%
+  summarise(m.Ne = mean(Ne),
+            se.Ne = stderror(Ne)) %>%
+  ungroup()
+  
+#grand average :  over all- Ne  
+average.Ne4.oa<- matrix.mean.erp %>%
+  group_by( ) %>%
+  summarise(m.Ne = mean(Ne),
+            se.Ne = stderror(Ne)) %>%
+  ungroup()
+
+paste("mean Ne/c:", average.Ne4.Acc$acc, round(average.Ne4.Acc$m.Ne, 3), "+/-",round(average.Ne4.Acc$se.Ne, 3), "µV/cm²")
+  
+```
+
+### Statistical analyses
+
+#### LME - NE***triple check 
+
+```{r}
+Ne4.0.lme <- lmer(Ne ~ acc * eval *  ps_cen  * cm_cen + (1 | ID), matrix.mean.erp)
+tab_summary(Ne4.0.lme, pred.labels = predictors.all, dv.labels = "Ne/c Amplitude Effects")
+
+```
+
+#### Collinearity
+
+```{r}
+check_collinearity(Ne4.0.lme )
+# plot results
+if (require("see")) {
+  x <- check_collinearity(Ne4.0.lme)
+  plot(x)
+}
+
+```
+
+#### Post-hoc Acc x Eval
+
+```{r}
+# within interaction post hoc comparison
+  emmeans(Ne4.0.lme, specs = c("acc", "eval")) %>% 
+  pairs()
+```
+
+#### Post hoc simple slope Acc x PSP x ECP
+
+```{r}
+Ne3.lme <- lmer(m.Ne ~ acc * ps_cen  * cm_cen + (1 | ID), matrix.mean.Ne3)
+tab_summary(Ne3.lme, pred.labels =  predictors.acc, dv.labels = "Ne Amp Effects")
+ 
+ssp3 <- list(Ne3 = sim_slope_plot_3x(Ne3.lme, steps = 0.05))  
+
+ssp3$Ne3 <- ssp3$Ne3 +
+  scale_fill_gradient2(limits = c(-0.3,0.3), low = muted("blue"), mid = "white", high = muted("red"),  name = "Accuracy Effect") +
+  theme(legend.position = "bottom") + labs(x = "Personal Standards Perferctionism (centered)", y = "Evaluative Concerns Perfectionism (centered)")
+cowplot::plot_grid(ssp3$Ne3)
+
+```
+
+## Error positivity (Pe) {.tabset .tabset-pills}
+
+### Descriptives
+
+```{r}
+
+matrix.mean.Pe2 <- matrix.mean.erp %>%
+  group_by(ID) %>%
+  summarise(m.Pe = mean(Pe),
+            se.Pe = sd(Pe),
+            ps_cen =first(ps_cen),
+            cm_cen = first(cm_cen)) %>%
+  ungroup()
+
+
+#grand average : eval x accuracy 
+average.Pe.AccEv <- matrix.mean.erp %>%
+  group_by(acc, eval) %>%
+  summarise(m.Pe = mean(Pe),
+            se.Pe = sd(Pe)) %>%
+  ungroup()
+   
+#grand average :  accuracy 
+ average.Pe.Acc <- matrix.mean.erp  %>%
+  group_by(acc) %>%
+  summarise(m.Pe = mean(Pe),
+            se.Pe = stderror(Pe)) %>%
+  ungroup()   
+  
+#grand average : eval   
+average.Pe.Ev <- matrix.mean.erp  %>%
+  group_by(eval) %>%
+  summarise(m.Pe = mean(Pe),
+            se.Pe = stderror(Pe)) %>%
+  ungroup()   
+
+paste("mean Pe/c:", average.Pe.Acc$acc, round(average.Pe.Acc$m.Pe, 3), "+/-",round(average.Pe.Acc$se.Pe, 3), "µV/cm²")
+ 
+```
+
+### Statistical Analyses
+
+#### LME - Pe
+
+```{r}
+Pe4.lme <- lmer(Pe ~ acc * eval * ps_cen  * cm_cen + (1 | ID), matrix.mean.erp)
+tab_summary(Pe4.lme, pred.labels = predictors.all, dv.labels = "Pe/c Amplitude Effects")
+
+```
+
+#### Collinearity
+
+```{r}
+check_collinearity(Pe4.lme)
+
+# plot results
+if (require("see")) {
+  x <- check_collinearity(Pe4.lme)
+  plot(x)
+}
+
+```
+
+#### Posthoc Acc x Eval type
+
+```{r}
+# within interaction post hoc comparison
+  emmeans(Pe4.lme, specs = c("acc", "eval")) %>% 
+  pairs()
+```
+
+#### Post hoc simple slope - Pe
+
+```{r}
+
+Pe2.lm <- lm(m.Pe ~ ps_cen * cm_cen + (1 | ID), matrix.mean.Pe2)
+tab_summary(Pe2.lm, pred.labels =  predictors.perf, dv.labels = "Pe/c Amplitude Effects")
+
+sspe2 <- list(Pe2= sim_slope_plot_2x(Pe2.lm, steps = 0.05, thresholding = TRUE, center = TRUE)) 
+
+sspe2$Pe2 <- sspe2$Pe2 +
+  scale_fill_gradient2(limits = c(-0.3,0.3), low = muted("blue"), mid = "white", high = muted("red"),  name = "Deviation from Mean Pe-Amplitue") +
+  theme(legend.position = "bottom") + labs(x = "Personal Standards Perferctionism (centered)", y = "Evaluative Concerns Perfectionism (centered)")
+cowplot::plot_grid(sspe2$Pe2 )
+
+```
